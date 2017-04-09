@@ -1,78 +1,44 @@
 module MXReader
 
-export read
+abstract AbstractModel
+type FeedForward <: AbstractModel
+  arch        :: SymbolicNode
+  ctx         :: Vector{Context}
 
-type FeedForward
-  symbol
-  ctx
-  arg_params
-  aux_params
-end         #needs to be well-defined
+  arg_params  :: Dict{Base.Symbol, NDArray}
+  aux_params  :: Dict{Base.Symbol, NDArray}
 
-const Cuint = UInt32
+  pred_exec   :: Union{Executor, Void}
+  FeedForward(arch :: SymbolicNode, ctx :: Vector{Context}) = new(arch, ctx)
+end
 
-int MXNDArrayLoad(const char* fname,
-                  mx_uint *out_size,
-                  NDArrayHandle** out_arr,
-                  mx_uint *out_name_size,
-                  const char*** out_names) {
-  MXAPIThreadLocalEntry *ret = MXAPIThreadLocalStore::Get();
-  ret->ret_vec_str.clear();
-  API_BEGIN();
-  std::vector<NDArray> data;
-  std::vector<std::string> &names = ret->ret_vec_str;
-  {
-    std::unique_ptr<dmlc::Stream> fi(dmlc::Stream::Create(fname, "r")); //called at io.h
-    mxnet::NDArray::Load(fi.get(), &data, &names);
-  }
-  ret->ret_handles.resize(data.size());
-  for (size_t i = 0; i < data.size(); ++i) {
-    NDArray *ptr = new NDArray();
-    *ptr = data[i];
-    ret->ret_handles[i] = ptr;
-  }
-  ret->ret_vec_charp.resize(names.size());
-  for (size_t i = 0; i < names.size(); ++i) {
-    ret->ret_vec_charp[i] = names[i].c_str();
-  }
-  *out_size = static_cast<mx_uint>(data.size());
-  *out_arr = dmlc::BeginPtr(ret->ret_handles);
-  *out_name_size = static_cast<mx_uint>(names.size());
-  *out_names = dmlc::BeginPtr(ret->ret_vec_charp);
-  API_END();
-}
+typealias MX_uint Cuint
+typealias MX_handle Ptr{Void}
+typealias char_p Ptr{UInt8}
+typealias char_pp Ptr{char_p}
 
+function _ndarray_alloc()
+  h_ref = Ref{MX_handle}(0)
+  @mxcall(:MXNDArrayCreateNone, (Ref{MX_handle},), h_ref)
+  return MX_NDArrayHandle(h_ref[])
+end
 
-function nd_load(fname):
-    """Load array from file.
-    See more details in ``save``.
-    Parameters
-    ----------
-    fname : str
-        The filename.
-    Returns
-    -------
-    list of NDArray or dict of str to NDArray
-        Loaded data.
-    """
-    #if not isinstance(fname, string_types):
-    #    raise TypeError('fname required to be a string')
-    out_size = Cuint
-    out_name_size = Cuint
-    handles = ctypes.POINTER(NDArrayHandle)()
-    names = ctypes.POINTER(ctypes.c_char_p)()
-    check_call(_LIB.MXNDArrayLoad(c_str(fname),
-                                  ctypes.byref(out_size),
-                                  ctypes.byref(handles),
-                                  ctypes.byref(out_name_size),
-                                  ctypes.byref(names)))
-    if out_name_size.value == 0
-        return [NDArray(NDArrayHandle(handles[i])) for i in (1:out_size.value)]
-    else
-        assert out_name_size.value == out_size.value
-        return dict(
-(py_str(names[i]), NDArray(NDArrayHandle(handles[i]))) for i in (1:out_size.value))
-    end
+function nd_load(fname)
+  out_size = Ref{MX_uint}(0)
+  handles = Ref{Ptr{MX_handle}}(0)
+  out_name_size = Ref{MX_uint}(0)
+  names = Ref{char_pp}(0)
+  @mxcall(:MXNDArrayLoad, (char_p, Ref{MX_uint}, Ref{Ptr{MX_handle}}, Ref{MX_uint}, Ref{char_pp}),
+          filename, out_size, handles, out_name_size, names)
+  out_name_size = out_name_size[1]
+  out_size      = out_size[1]
+  if out_name_size == 0
+    return [NDArray(MX_NDArrayHandle(handle)) for handle in unsafe_wrap(Array, handles[], out_size)]
+  else
+    @assert out_size == out_name_size
+    return Dict([(Symbol(unsafe_string(k)), NDArray(MX_NDArrayHandle(handle))) for (k,handle) in
+                 zip(unsafe_wrap(Array, out_names[1], out_size), unsafe_wrap(Array, handles[1], out_size))])
+end
 
 function sym_load(files)
   dictall=Dict()
@@ -83,13 +49,6 @@ function sym_load(files)
       dictall=JSON.parse(dicttxt)
   end
 end
-#=
-function sym_load(fname)
-  handle = SymbolHandle()
-  check_call(_LIB.MXSymbolCreateFromFile(c_str(fname), ctypes.byref(handle)))
-  return Symbol(handle)
-end
-=#
 
 function load_checkpoint(symfile, paramfile)
   symbol = sym_load(symfile)
