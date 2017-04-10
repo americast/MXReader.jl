@@ -1,6 +1,6 @@
 const MXNET_LIB = Libdl.find_library(["libmxnet.so","libmxnet.dll"],
                                      [joinpath("$(get(ENV,"MXNET_HOME",""))","lib"),
-                                      Pkg.dir("MXNet","deps","usr","lib")])
+                                      Pkg.dir("MXReader","deps","usr","lib")])
 
 ################################################################################
 # Common types used in MXNet API
