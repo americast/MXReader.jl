@@ -28,6 +28,7 @@ using BinDeps
 @BinDeps.setup
 if !libmxnet_detected
   if is_windows()
+    exe7z = joinpath(JULIA_HOME, "7z.exe")
     # TODO: Detect GPU support on Windows
     info("Downloading pre-built CPU packages for Windows.")
     base_url = "https://github.com/dmlc/mxnet/releases/download/20160531/20160531_win10_x64_cpu.7z"
@@ -41,11 +42,11 @@ if !libmxnet_detected
     package_url = "https://github.com/yajiedesign/mxnet/releases/download/$(curr_win)/$(curr_win)_mxnet_x64_vc12_cpu.7z"
 
     run(download_cmd(base_url, "mxnet_base.7z"))
-    run(`7z x mxnet_base.7z -y -ousr`)
+    run(`$exe7z x mxnet_base.7z -y -ousr`)
     run(`cmd /c copy "usr\\3rdparty\\openblas\\bin\\*.dll" "usr\\lib"`)
 
     run(download_cmd(package_url, "mxnet.7z"))
-    run(`7z x mxnet.7z -y -ousr`)
+    run(`$exe7z x mxnet.7z -y -ousr`)
 
     return
   end
